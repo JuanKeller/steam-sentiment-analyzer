@@ -1,4 +1,4 @@
-streamlit
-pandas
-textblob
+streamlit 
+pandas 
+textblob 
 matplotlib
