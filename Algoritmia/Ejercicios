@@ -1,0 +1,27 @@
+#1.10 Registro de estudiante
+
+CONTRASENA="Tareas918"
+nombre= input("Nombre: ")
+try:
+    edad = int(input("Edad: "))
+    nota = float(input("Nota final (0-5): "))
+    clave = input("Contraseña: ")
+    if edad < 16:
+        print("Error: edad debe ser mayor o igual a 16")
+    elif nota < 0 or nota > 5:
+        print("Error: nota fuera de rango (0-5)")
+    elif clave != CONTRASENA:
+        print("Error: contraseña incorrecta")
+    else:
+        if nota >= 4.5:
+            desempeno = "Excelente"
+        elif nota >= 3.5:
+            desempeno = "Bueno"
+        elif nota >= 3.9:
+            desempeno = "Aceptable"
+        else:
+            desempeno = "Reprobado"
+        print(f"Desempeño académico: {desempeno}")
+        print("Registro exitoso!"   )
+except ValueError:
+    print("Error: ingresa los datos correctamente")

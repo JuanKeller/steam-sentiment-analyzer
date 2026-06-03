@@ -1,0 +1,450 @@
+
+"""
+APLICACIÓN ORGANIZADOR DE PROYECTOS PUBLICITARIOS
+Desarrollada en Python con Tkinter
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+import sqlite3
+from datetime import datetime
+import os
+
+class ProyectosPublicitariosApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Organizador de Proyectos Publicitarios")
+        self.root.geometry("1100x600")
+        
+        # Configurar la base de datos
+        self.configurar_bd()
+        
+        # Crear la interfaz
+        self.crear_interfaz()
+        
+        # Cargar proyectos existentes
+        self.cargar_proyectos()
+    
+    def configurar_bd(self):
+        """Configura la base de datos SQLite"""
+        self.conn = sqlite3.connect('proyectos_publicitarios.db')
+        self.cursor = self.conn.cursor()
+        
+        # Crear tabla si no existe
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS proyectos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL,
+                cliente TEXT NOT NULL,
+                material TEXT NOT NULL,
+                cantidad_disponible INTEGER,
+                cantidad_requerida INTEGER,
+                tiempo_impresion INTEGER,
+                tiempo_entrega INTEGER,
+                estado_diseno TEXT
+            )
+        ''')
+        self.conn.commit()
+    
+    def crear_interfaz(self):
+        """Crea todos los elementos de la interfaz gráfica"""
+        
+        # Frame principal
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Título
+        titulo = ttk.Label(main_frame, text="ORGANIZADOR DE PROYECTOS PUBLICITARIOS", 
+                          font=('Arial', 16, 'bold'))
+        titulo.grid(row=0, column=0, columnspan=3, pady=10)
+        
+        # ========== SECCIÓN DE REGISTRO ==========
+        registro_frame = ttk.LabelFrame(main_frame, text="Registrar Nuevo Proyecto", padding="10")
+        registro_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        
+        # Campos del formulario
+        campos = [
+            ("Nombre del Proyecto:", "entry_nombre"),
+            ("Cliente:", "entry_cliente"),
+            ("Material a utilizar:", "combo_material"),
+            ("Cantidad Disponible (m²):", "entry_cant_disp"),
+            ("Cantidad Requerida (m²):", "entry_cant_req"),
+            ("Tiempo estimado impresión (horas):", "entry_tiempo_imp"),
+            ("Tiempo hábil entrega (días):", "entry_tiempo_ent"),
+            ("Estado del diseño:", "combo_estado")
+        ]
+        
+        self.entries = {}
+        
+        for i, (label_text, entry_name) in enumerate(campos):
+            # Label
+            ttk.Label(registro_frame, text=label_text).grid(
+                row=i//2*2, column=0 if i%2==0 else 2, sticky=tk.W, padx=5, pady=5
+            )
+            
+            # Campo de entrada
+            if "combo" in entry_name:
+                if entry_name == "combo_material":
+                    valores = ["Vinilo", "Pendón", "Lona", "Papel", "Tela"]
+                else:  # combo_estado
+                    valores = ["Pendiente", "En proceso", "Finalizado"]
+                
+                self.entries[entry_name] = ttk.Combobox(registro_frame, values=valores, width=30)
+                self.entries[entry_name].set(valores[0])
+            else:
+                self.entries[entry_name] = ttk.Entry(registro_frame, width=30)
+            
+            self.entries[entry_name].grid(
+                row=i//2*2, column=1 if i%2==0 else 3, padx=5, pady=5
+            )
+        
+        # Botones de registro
+        ttk.Button(registro_frame, text="Registrar Proyecto", 
+                  command=self.registrar_proyecto).grid(row=4, column=0, columnspan=2, pady=15)
+        ttk.Button(registro_frame, text="Limpiar Campos", 
+                  command=self.limpiar_campos).grid(row=4, column=2, columnspan=2, pady=15)
+        
+        # ========== TABLA DE PROYECTOS ==========
+        tabla_frame = ttk.LabelFrame(main_frame, text="Proyectos Registrados", padding="10")
+        tabla_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(tabla_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Treeview (tabla)
+        columnas = ('ID', 'Nombre', 'Cliente', 'Material', 'Disp.', 'Req.', 
+                   'T.Impresión', 'T.Entrega', 'Estado', 'Listo?')
+        self.tabla = ttk.Treeview(tabla_frame, columns=columnas, show='headings', 
+                                  yscrollcommand=scrollbar.set, height=10)
+        
+        # Configurar columnas
+        for col in columnas:
+            self.tabla.heading(col, text=col)
+            self.tabla.column(col, width=100)
+        
+        self.tabla.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.tabla.yview)
+        
+        # ========== BOTONES DE ACCIÓN ==========
+        acciones_frame = ttk.Frame(main_frame)
+        acciones_frame.grid(row=3, column=0, columnspan=3, pady=10)
+        
+        ttk.Button(acciones_frame, text="Editar Proyecto", 
+                  command=self.editar_proyecto).pack(side=tk.LEFT, padx=5)
+        ttk.Button(acciones_frame, text="Eliminar Proyecto", 
+                  command=self.eliminar_proyecto).pack(side=tk.LEFT, padx=5)
+        ttk.Button(acciones_frame, text="Verificar Material", 
+                  command=self.verificar_material).pack(side=tk.LEFT, padx=5)
+        ttk.Button(acciones_frame, text="Actualizar Tabla", 
+                  command=self.cargar_proyectos).pack(side=tk.LEFT, padx=5)
+        ttk.Button(acciones_frame, text="Salir", 
+                  command=self.root.quit).pack(side=tk.LEFT, padx=5)
+        
+        # ========== BARRA DE ESTADO ==========
+        self.status_bar = ttk.Label(main_frame, text="Listo", relief=tk.SUNKEN, anchor=tk.W)
+        self.status_bar.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+    
+    def validar_datos(self, datos):
+        """
+        Valida los datos ingresados en el formulario
+        Retorna: (True, "") si son válidos, (False, mensaje_error) si no
+        """
+        # Validar campos obligatorios
+        if not datos['nombre'] or not datos['cliente']:
+            return False, "El nombre del proyecto y el cliente son obligatorios"
+        
+        # Validar que las cantidades sean números positivos
+        try:
+            cant_disp = int(datos['cantidad_disponible'])
+            cant_req = int(datos['cantidad_requerida'])
+            
+            if cant_disp < 0 or cant_req < 0:
+                return False, "Las cantidades deben ser números positivos"
+            
+            if cant_req > cant_disp:
+                return False, "La cantidad requerida no puede ser mayor a la disponible"
+                
+        except ValueError:
+            return False, "Las cantidades deben ser números enteros"
+        
+        # Validar tiempos
+        try:
+            tiempo_imp = int(datos['tiempo_impresion'])
+            tiempo_ent = int(datos['tiempo_entrega'])
+            
+            if tiempo_imp < 0 or tiempo_ent < 0:
+                return False, "Los tiempos deben ser números positivos"
+        except ValueError:
+            return False, "Los tiempos deben ser números enteros"
+        
+        return True, ""
+    
+    def verificar_disponibilidad_material(self, material, cantidad_requerida, proyecto_id=None):
+        """
+        Verifica si hay suficiente material disponible
+        Si proyecto_id se proporciona, excluye ese proyecto del cálculo (para ediciones)
+        """
+        # Obtener todos los proyectos del mismo material
+        if proyecto_id:
+            self.cursor.execute('''
+                SELECT cantidad_requerida FROM proyectos 
+                WHERE material = ? AND id != ?
+            ''', (material, proyecto_id))
+        else:
+            self.cursor.execute('''
+                SELECT cantidad_requerida FROM proyectos 
+                WHERE material = ?
+            ''', (material,))
+        
+        proyectos_mismo_material = self.cursor.fetchall()
+        
+        # Calcular material total comprometido
+        material_comprometido = sum(p[0] for p in proyectos_mismo_material)
+        
+        # Obtener cantidad disponible total (del nuevo proyecto)
+        self.cursor.execute('''
+            SELECT cantidad_disponible FROM proyectos 
+            WHERE material = ? LIMIT 1
+        ''', (material,))
+        
+        resultado = self.cursor.fetchone()
+        if resultado:
+            disponible_total = resultado[0]
+        else:
+            # Si no hay proyectos de este material, usamos la cantidad del formulario
+            disponible_total = cantidad_requerida
+        
+        material_restante = disponible_total - (material_comprometido + cantidad_requerida)
+        
+        # Verificar si hay suficiente
+        if material_restante < 0:
+            return False, f"Material insuficiente. Faltan {abs(material_restante)} m²"
+        
+        # Alerta si el material es bajo (menos del 20% de material disponible)
+        if material_restante < (disponible_total * 0.2):
+            messagebox.showwarning("Alerta de Material", 
+                                 f"¡Material bajo! Quedan solo {material_restante} m² de {material}")
+        
+        return True, f"Material disponible. Quedan {material_restante} m²"
+    
+    def determinar_listo_entrega(self, estado, tiempo_entrega):
+        """Determina si un proyecto está listo para entrega"""
+        if estado == "Finalizado" and tiempo_entrega >= 0:
+            return "SÍ"
+        return "NO"
+    
+    def registrar_proyecto(self):
+        """Registra un nuevo proyecto en la base de datos"""
+        try:
+            # Recoger datos del formulario
+            datos = {
+                'nombre': self.entries['entry_nombre'].get().strip(),
+                'cliente': self.entries['entry_cliente'].get().strip(),
+                'material': self.entries['combo_material'].get(),
+                'cantidad_disponible': self.entries['entry_cant_disp'].get().strip(),
+                'cantidad_requerida': self.entries['entry_cant_req'].get().strip(),
+                'tiempo_impresion': self.entries['entry_tiempo_imp'].get().strip(),
+                'tiempo_entrega': self.entries['entry_tiempo_ent'].get().strip(),
+                'estado_diseno': self.entries['combo_estado'].get()
+            }
+            
+            # Validar datos
+            valido, mensaje = self.validar_datos(datos)
+            if not valido:
+                messagebox.showerror("Error de validación", mensaje)
+                return
+            
+            # Verificar disponibilidad de material
+            disponible, mensaje_material = self.verificar_disponibilidad_material(
+                datos['material'], int(datos['cantidad_requerida'])
+            )
+            
+            if not disponible:
+                messagebox.showerror("Material insuficiente", mensaje_material)
+                return
+            
+            # Insertar en la base de datos
+            self.cursor.execute('''
+                INSERT INTO proyectos 
+                (nombre, cliente, material, cantidad_disponible, cantidad_requerida, 
+                 tiempo_impresion, tiempo_entrega, estado_diseno)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                datos['nombre'], datos['cliente'], datos['material'],
+                int(datos['cantidad_disponible']), int(datos['cantidad_requerida']),
+                int(datos['tiempo_impresion']), int(datos['tiempo_entrega']),
+                datos['estado_diseno']
+            ))
+            
+            self.conn.commit()
+            
+            messagebox.showinfo("Éxito", "Proyecto registrado correctamente")
+            self.limpiar_campos()
+            self.cargar_proyectos()
+            self.status_bar.config(text=f"Proyecto '{datos['nombre']}' registrado - {mensaje_material}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo registrar el proyecto: {str(e)}")
+    
+    def limpiar_campos(self):
+        """Limpia todos los campos del formulario"""
+        for entry_name in self.entries:
+            if "combo" in entry_name:
+                if entry_name == "combo_material":
+                    self.entries[entry_name].set("Vinilo")
+                else:
+                    self.entries[entry_name].set("Pendiente")
+            else:
+                self.entries[entry_name].delete(0, tk.END)
+    
+    def cargar_proyectos(self):
+        """Carga todos los proyectos en la tabla"""
+        # Limpiar tabla
+        for item in self.tabla.get_children():
+            self.tabla.delete(item)
+        
+        # Obtener proyectos de la base de datos
+        self.cursor.execute('SELECT * FROM proyectos ORDER BY id')
+        proyectos = self.cursor.fetchall()
+        
+        # Insertar en la tabla
+        for proyecto in proyectos:
+            listo = self.determinar_listo_entrega(proyecto[8], proyecto[7])
+            self.tabla.insert('', tk.END, values=proyecto + (listo,))
+    
+    def editar_proyecto(self):
+        """Edita el proyecto seleccionado"""
+        seleccion = self.tabla.selection()
+        if not seleccion:
+            messagebox.showwarning("Seleccionar", "Por favor, seleccione un proyecto para editar")
+            return
+        
+        # Obtener datos del proyecto seleccionado
+        item = self.tabla.item(seleccion[0])
+        proyecto = item['values']
+        
+        # Crear ventana de edición
+        ventana_editar = tk.Toplevel(self.root)
+        ventana_editar.title("Editar Proyecto")
+        ventana_editar.geometry("400x400")
+        
+        # Campos de edición
+        campos_editar = [
+            ("Nombre:", proyecto[1]),
+            ("Cliente:", proyecto[2]),
+            ("Material:", proyecto[3]),
+            ("Cant. Disponible:", proyecto[4]),
+            ("Cant. Requerida:", proyecto[5]),
+            ("T. Impresión:", proyecto[6]),
+            ("T. Entrega:", proyecto[7]),
+            ("Estado:", proyecto[8])
+        ]
+        
+        entries_editar = []
+        
+        for i, (label_text, valor) in enumerate(campos_editar):
+            ttk.Label(ventana_editar, text=label_text).grid(row=i, column=0, padx=5, pady=5)
+            
+            if "Estado" in label_text:
+                entry = ttk.Combobox(ventana_editar, values=["Pendiente", "En proceso", "Finalizado"])
+                entry.set(valor)
+            else:
+                entry = ttk.Entry(ventana_editar)
+                entry.insert(0, str(valor))
+            
+            entry.grid(row=i, column=1, padx=5, pady=5)
+            entries_editar.append(entry)
+        
+        def guardar_edicion():
+            try:
+                # Recoger nuevos valores
+                nuevos_valores = [e.get() for e in entries_editar]
+                
+                # Actualizar base de datos
+                self.cursor.execute('''
+                    UPDATE proyectos 
+                    SET nombre=?, cliente=?, material=?, cantidad_disponible=?,
+                        cantidad_requerida=?, tiempo_impresion=?, tiempo_entrega=?,
+                        estado_diseno=?
+                    WHERE id=?
+                ''', (
+                    nuevos_valores[0], nuevos_valores[1], nuevos_valores[2],
+                    int(nuevos_valores[3]), int(nuevos_valores[4]),
+                    int(nuevos_valores[5]), int(nuevos_valores[6]),
+                    nuevos_valores[7], proyecto[0]
+                ))
+                
+                self.conn.commit()
+                self.cargar_proyectos()
+                ventana_editar.destroy()
+                messagebox.showinfo("Éxito", "Proyecto actualizado correctamente")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo actualizar: {str(e)}")
+        
+        ttk.Button(ventana_editar, text="Guardar Cambios", command=guardar_edicion).grid(
+            row=len(campos_editar), column=0, columnspan=2, pady=20)
+    
+    def eliminar_proyecto(self):
+        """Elimina el proyecto seleccionado"""
+        seleccion = self.tabla.selection()
+        if not seleccion:
+            messagebox.showwarning("Seleccionar", "Por favor, seleccione un proyecto para eliminar")
+            return
+        
+        # Confirmar eliminación
+        if messagebox.askyesno("Confirmar", "¿Está seguro de eliminar este proyecto?"):
+            item = self.tabla.item(seleccion[0])
+            proyecto_id = item['values'][0]
+            
+            self.cursor.execute('DELETE FROM proyectos WHERE id = ?', (proyecto_id,))
+            self.conn.commit()
+            
+            self.cargar_proyectos()
+            self.status_bar.config(text="Proyecto eliminado correctamente")
+    
+    def verificar_material(self):
+        """Verifica el estado del material de todos los proyectos"""
+        self.cursor.execute('SELECT DISTINCT material, cantidad_disponible FROM proyectos')
+        materiales = self.cursor.fetchall()
+        
+        if not materiales:
+            messagebox.showinfo("Información", "No hay proyectos registrados")
+            return
+        
+        mensaje = "ESTADO DE MATERIALES:\n\n"
+        
+        for material, cantidad_total in materiales:
+            self.cursor.execute('''
+                SELECT SUM(cantidad_requerida) FROM proyectos WHERE material = ?
+            ''', (material,))
+            
+            total_requerido = self.cursor.fetchone()[0] or 0
+            disponible = cantidad_total - total_requerido
+            
+            mensaje += f"{material}:\n"
+            mensaje += f"  Total disponible: {cantidad_total} m²\n"
+            mensaje += f"  Total requerido: {total_requerido} m²\n"
+            mensaje += f"  Material restante: {disponible} m²\n"
+            
+            if disponible < 0:
+                mensaje += "  ⚠️ ¡INSUFICIENTE!\n"
+            elif disponible < (cantidad_total * 0.2):
+                mensaje += "  ⚠️ ¡BAJO!\n"
+            else:
+                mensaje += "  ✅ Suficiente\n"
+            mensaje += "\n"
+        
+        messagebox.showinfo("Verificación de Material", mensaje)
+    
+    def __del__(self):
+        """Cierra la conexión a la base de datos al finalizar"""
+        if hasattr(self, 'conn'):
+            self.conn.close()
+
+# Punto de entrada principal
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ProyectosPublicitariosApp(root)
+    root.mainloop()
